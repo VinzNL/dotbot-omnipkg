@@ -1,7 +1,9 @@
-import dotbot
 import os
-import sys
 import subprocess
+import sys
+
+import dotbot
+
 
 class OmniPkg(dotbot.Plugin):
     # only support the omnipkg directive
@@ -30,6 +32,9 @@ class OmniPkg(dotbot.Plugin):
 
     # Command used to check that the package exists before installing it
     _existsCheck = ""
+
+    # Command used to check that the package is not already installed before installing it
+    _installedCheck = ""
 
     # flag for if a gui is installed. Default to True, only checked if on linux
     _guiInstalled = True
@@ -136,6 +141,7 @@ class OmniPkg(dotbot.Plugin):
     def _setupAptGet(self):
         self._installCommand = "sudo apt-get install -y"
         self._existsCheck = "apt-cache show $PKG_NAME"
+        self._installedCheck = "dpkg -l $PKG_NAME | grep ii"
         self._updateCommand = "sudo apt-get update"
         self._upgradeCommand = "sudo apt-get dist-upgrade -y"
 
@@ -143,6 +149,7 @@ class OmniPkg(dotbot.Plugin):
         baseCommand = "sudo pacman --noconfirm %s"
         self._installCommand = baseCommand % "-S"
         self._existsCheck = "pacman -Si $PKG_NAME"
+        self._installedCheck = "pacman -Qq $PKG_NAME"
         self._updateCommand = baseCommand % "-Syy"
         self._upgradeCommand = baseCommand % "-Syu"
 
@@ -160,11 +167,13 @@ class OmniPkg(dotbot.Plugin):
                 if isinstance(pkg, str):
                     self._log.info("Installing package: %s" % pkg)
                     exists = self._pkgExists(pkg)
+                    installed = self._pkgInstalled(pkg)
                     existsInDict = True
                     requireGUI = False
                 elif isinstance(pkg, list):
                     self._log.info("Selecting package from {}".format(pkg))
                     exists, pkg = self._getPkgNameFromList(pkg)
+                    installed = self._pkgInstalled(pkg)
                     existsInDict = True
                     requireGUI = False
                     if exists:
@@ -174,6 +183,7 @@ class OmniPkg(dotbot.Plugin):
                     existsInDict, exists, requireGUI, pkg, directive = self._getPkgNameFromDict(pkg)
                     if exists and not (requireGUI and not self._guiInstalled):
                         self._log.info("Found package: %s for %s - Installing" % (pkg, directive))
+                        installed = self._pkgInstalled(pkg)
                 else:
                     # invalid data
                     # this should be handled above the plugin level
@@ -185,6 +195,8 @@ class OmniPkg(dotbot.Plugin):
                     # otherwise skip if package doesn't exist
                 elif not exists:
                     self._log.lowinfo("Skipping installation as package does not exist")
+                elif installed:
+                    self._log.lowinfo("Skipping installation as package is already installed")
                 elif requireGUI and not self._guiInstalled:
                     self._log.lowinfo("Skipping installation as package requires an installed GUI")
                 else:
@@ -222,6 +234,14 @@ class OmniPkg(dotbot.Plugin):
         else:
             # assume the package exists if no check
             return True
+
+    def _pkgInstalled(self, pkg):
+        if self._installedCheck != "":
+            cmd = self._installedCheck.replace("$PKG_NAME", pkg)
+            return self._bootstrap(cmd)
+        else:
+            # assume the package is not installed if no check
+            return False
 
     def _getPkgNameFromList(self, pkgList):
         for pkg in pkgList:
